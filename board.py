@@ -178,6 +178,69 @@ class Board:
         board_fen = '/'.join(fen_rows)
         fen = f"{board_fen} {self.active_color} {self.castling_rights} {self.en_passant} {self.halfmove_clock} {self.fullmove_number}"
         return fen
+    
+    def is_square_attacked(self, square: int, active_color: int) -> bool:
+        enemy_color = BLACK if active_color == WHITE else WHITE
+
+        # 1. Sliding pieces (Rook, Bishop, Queen)
+        # Combined directions for optimization
+        directions = [
+            (-8, 'orthogonal'), (8, 'orthogonal'), (-1, 'orthogonal'), (1, 'orthogonal'), # Rook/Queen
+            (-9, 'diagonal'), (-7, 'diagonal'), (7, 'diagonal'), (9, 'diagonal')         # Bishop/Queen
+        ]
+
+        for d, d_type in directions:
+            current_index = square
+            while True:
+                prev_col = current_index % 8
+                current_index += d
+
+                if not (0 <= current_index < 64): break
+                if abs((current_index % 8) - prev_col) > 1: break # Correct edge wrap check
+
+                piece = self.board_pieces[current_index]
+                if piece != 0:
+                    if (piece & COLOR_MASK) == enemy_color:
+                        t = piece & TYPE_MASK
+                        if t == 5: return True # Queen
+                        if d_type == 'orthogonal' and t == 4: return True # Rook
+                        if d_type == 'diagonal' and t == 3: return True # Bishop
+                    break # Blocked by any piece
+
+        # 2. Knights
+        knight_moves = [-17, -15, -10, -6, 6, 10, 15, 17]
+        for m in knight_moves:
+            target = square + m
+            if 0 <= target < 64:
+                # Verify L-shape (prevents horizontal wrapping)
+                if abs((target % 8) - (square % 8)) <= 2 and \
+                abs((target // 8) - (square // 8)) <= 2 and \
+                abs((target % 8) - (square % 8)) + abs((target // 8) - (square // 8)) == 3:
+                    piece = self.board_pieces[target]
+                    if (piece & COLOR_MASK) == enemy_color and (piece & TYPE_MASK) == 2:
+                        return True
+
+        # 3. Pawns
+        # Pawns attack from the perspective of the king
+        pawn_offsets = [-7, -9] if active_color == WHITE else [7, 9]
+        for offset in pawn_offsets:
+            target = square + offset
+            if 0 <= target < 64 and abs((target % 8) - (square % 8)) == 1:
+                piece = self.board_pieces[target]
+                if (piece & COLOR_MASK) == enemy_color and (piece & TYPE_MASK) == 1:
+                    return True
+
+        # 4. Enemy King (Kings cannot be adjacent)
+        king_offsets = [-9, -8, -7, -1, 1, 7, 8, 9]
+        for offset in king_offsets:
+            target = square + offset
+            if 0 <= target < 64 and abs((target % 8) - (square % 8)) <= 1:
+                piece = self.board_pieces[target]
+                if (piece & COLOR_MASK) == enemy_color and (piece & TYPE_MASK) == 6:
+                    return True
+
+        return False
+
 
     def get_color(piece_value):
         return piece_value & COLOR_MASK

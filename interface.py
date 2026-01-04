@@ -1,6 +1,7 @@
 import pygame
 import sys
 import os
+import time
 from move import Move
 from board import Board
 from engine import Engine
@@ -241,8 +242,10 @@ class Interface:
     # ------------------ Main Loop ------------------
 
     def run(self, player_side):
-        self.player_side = player_side
+        self.player_side = player_side  
         computer_side = 'b' if player_side == 'w' else 'w'
+        print("-------------------------------------------------------------")
+        self.engine.evaluate()
 
         while self.running:
             if self.board.active_color == player_side:
@@ -250,13 +253,21 @@ class Interface:
                 self.handle_events()
             if self.board.active_color == computer_side:
                 # print("Black to move")
+                start_time = time.time()
+                print("-------------------------------------------------------------")
+                self.engine.evaluate()
                 engine_move = self.engine.engine_move()
                 if engine_move:
                     self.board.move_piece(engine_move)
                     self.update_position()
+                    end_time = time.time()
+                    print(f"Engine move took {end_time - start_time:.5f} seconds")
                 else:
                     print("Engine has no legal moves.")
                     self.running = False
+                
+                print("-------------------------------------------------------------")
+                self.engine.evaluate()
 
             self.screen.blit(self.board_surface, (0, 0))
             self.draw_pieces()

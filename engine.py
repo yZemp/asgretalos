@@ -1,11 +1,13 @@
 from board import Board
 from random import randint
 from move import Move
+from evaluator import Evaluator
 from constants import WHITE, BLACK, TYPE_MASK, COLOR_MASK
 
 class Engine:
     def __init__(self, board: Board):
         self.board = board
+        self.evaluator = Evaluator()
 
     def engine_move(self):
         legal_moves = self.search(0)
@@ -17,14 +19,14 @@ class Engine:
         move = legal_moves[random_index]
         print(f"Engine selected move: {move[0]} to {move[1]}")
         return move
+    
+    def evaluate(self) -> int:
+        return self.evaluator.evaluate(self.board)
 
     def search(self, depth: int = 0):
         legal_moves = self.find_legal_moves()
         return legal_moves
         # Placeholder for search algorithm implementation
-
-    def evaluate(self) -> int:
-        pass  # Placeholder for evaluation function implementation
 
     def find_legal_moves(self) -> list:
         psuedo_legal_moves = []
@@ -70,7 +72,7 @@ class Engine:
             # Note: Must find king AFTER simulation if the king itself moved
             king_idx = self._find_king_position(self.active)
             
-            if not self.is_king_in_check(king_idx, self.active):
+            if not self.board.is_square_attacked(king_idx, self.active):
                 real_legal_moves.append(move)
                 
             # 4. Unmake move (Restore state)
@@ -195,22 +197,22 @@ class Engine:
                         moves.append(Move(index, target_index))
         
         # Castling
-        if self.is_king_in_check(index, friendly_color):
+        if self.board.is_square_attacked(index, friendly_color):
             return # Cannot castle out of check
         
         if friendly_color == WHITE:
             if 'K' in self.board.castling_rights:
                 if (self.board.board_pieces[61] == 0 and 
                     self.board.board_pieces[62] == 0 and
-                    not self.is_king_in_check(61, friendly_color) and
-                    not self.is_king_in_check(62, friendly_color)):
+                    not self.board.is_square_attacked(61, friendly_color) and
+                    not self.board.is_square_attacked(62, friendly_color)):
                     moves.append(Move(60, 62))
             if 'Q' in self.board.castling_rights:
                 if (self.board.board_pieces[59] == 0 and 
                     self.board.board_pieces[58] == 0 and
                     self.board.board_pieces[57] == 0 and
-                    not self.is_king_in_check(59, friendly_color) and
-                    not self.is_king_in_check(58, friendly_color)):
+                    not self.board.is_square_attacked(59, friendly_color) and
+                    not self.board.is_square_attacked(58, friendly_color)):
 
                     moves.append(Move(60, 58))
             
@@ -218,15 +220,15 @@ class Engine:
             if 'k' in self.board.castling_rights:
                 if (self.board.board_pieces[5] == 0 and 
                     self.board.board_pieces[6] == 0 and
-                    not self.is_king_in_check(5, friendly_color) and
-                    not self.is_king_in_check(6, friendly_color)):
+                    not self.board.is_square_attacked(5, friendly_color) and
+                    not self.board.is_square_attacked(6, friendly_color)):
                     moves.append(Move(4, 6))
             if 'q' in self.board.castling_rights:
                 if (self.board.board_pieces[3] == 0 and 
                     self.board.board_pieces[2] == 0 and
                     self.board.board_pieces[1] == 0 and
-                    not self.is_king_in_check(3, friendly_color) and
-                    not self.is_king_in_check(2, friendly_color)):
+                    not self.board.is_square_attacked(3, friendly_color) and
+                    not self.board.is_square_attacked(2, friendly_color)):
                     moves.append(Move(4, 2))
 
     def _find_king_position(self, active_color: int) -> int:
@@ -239,65 +241,3 @@ class Engine:
             raise ValueError("King not found on the board.")
         
         return king_position
-
-    def is_king_in_check(self, king_position: int, active_color: int) -> bool:
-        enemy_color = BLACK if active_color == WHITE else WHITE
-
-        # 1. Sliding pieces (Rook, Bishop, Queen)
-        # Combined directions for optimization
-        directions = [
-            (-8, 'orthogonal'), (8, 'orthogonal'), (-1, 'orthogonal'), (1, 'orthogonal'), # Rook/Queen
-            (-9, 'diagonal'), (-7, 'diagonal'), (7, 'diagonal'), (9, 'diagonal')         # Bishop/Queen
-        ]
-
-        for d, d_type in directions:
-            current_index = king_position
-            while True:
-                prev_col = current_index % 8
-                current_index += d
-
-                if not (0 <= current_index < 64): break
-                if abs((current_index % 8) - prev_col) > 1: break # Correct edge wrap check
-
-                piece = self.board.board_pieces[current_index]
-                if piece != 0:
-                    if (piece & COLOR_MASK) == enemy_color:
-                        t = piece & TYPE_MASK
-                        if t == 5: return True # Queen
-                        if d_type == 'orthogonal' and t == 4: return True # Rook
-                        if d_type == 'diagonal' and t == 3: return True # Bishop
-                    break # Blocked by any piece
-
-        # 2. Knights
-        knight_moves = [-17, -15, -10, -6, 6, 10, 15, 17]
-        for m in knight_moves:
-            target = king_position + m
-            if 0 <= target < 64:
-                # Verify L-shape (prevents horizontal wrapping)
-                if abs((target % 8) - (king_position % 8)) <= 2 and \
-                abs((target // 8) - (king_position // 8)) <= 2 and \
-                abs((target % 8) - (king_position % 8)) + abs((target // 8) - (king_position // 8)) == 3:
-                    piece = self.board.board_pieces[target]
-                    if (piece & COLOR_MASK) == enemy_color and (piece & TYPE_MASK) == 2:
-                        return True
-
-        # 3. Pawns
-        # Pawns attack from the perspective of the king
-        pawn_offsets = [-7, -9] if active_color == WHITE else [7, 9]
-        for offset in pawn_offsets:
-            target = king_position + offset
-            if 0 <= target < 64 and abs((target % 8) - (king_position % 8)) == 1:
-                piece = self.board.board_pieces[target]
-                if (piece & COLOR_MASK) == enemy_color and (piece & TYPE_MASK) == 1:
-                    return True
-
-        # 4. Enemy King (Kings cannot be adjacent)
-        king_offsets = [-9, -8, -7, -1, 1, 7, 8, 9]
-        for offset in king_offsets:
-            target = king_position + offset
-            if 0 <= target < 64 and abs((target % 8) - (king_position % 8)) <= 1:
-                piece = self.board.board_pieces[target]
-                if (piece & COLOR_MASK) == enemy_color and (piece & TYPE_MASK) == 6:
-                    return True
-
-        return False
