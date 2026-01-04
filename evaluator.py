@@ -10,10 +10,10 @@ class Evaluator:
         # Basic evaluation
         NUMBER_OF_PIECES = len([piece for piece in board.board_pieces if piece != 0])
 
-        material_score = self.material_evaluation(board)
-        pawn_structure_score = self.pawn_structure_evaluation(board, NUMBER_OF_PIECES)
-        king_position_score = self.king_position_evaluation(board, NUMBER_OF_PIECES)
-        pieces_combination_score = self.pieces_combination_evaluation(board)
+        material_score = int(self.material_evaluation(board))
+        pawn_structure_score = int(self.pawn_structure_evaluation(board, NUMBER_OF_PIECES))
+        king_position_score = int(self.king_position_evaluation(board, NUMBER_OF_PIECES))
+        pieces_combination_score = int(self.pieces_combination_evaluation(board))
 
         total_score = material_score + pawn_structure_score + king_position_score + pieces_combination_score
 
@@ -41,6 +41,19 @@ class Evaluator:
             piece_type = piece & TYPE_MASK
             piece_color = piece & COLOR_MASK
             value = piece_values[piece_type]
+
+            if piece == 4 or piece == 12:  # Rook on open file
+                file = board.board_pieces.index(piece) % 8
+                pawns_in_file = 0
+                for rank in range(8):
+                    square_index = rank * 8 + file
+                    square_piece = board.board_pieces[square_index]
+                    if square_piece != 0 and (square_piece & TYPE_MASK) == 1:  # Pawn found
+                        pawns_in_file += 1
+                        break
+                
+                value += (25 * (2 - pawns_in_file))  # Bonus for open/semi-open file (or penalty if blocked)
+
             if piece_color == WHITE:
                 score += value
             else:
@@ -50,9 +63,9 @@ class Evaluator:
 
     def pawn_structure_evaluation(self, board: Board, number_of_pieces: int) -> int:
         score = 0
-        doubled_pawn_penalty = 30
-        isolated_pawn_penalty = 20
-        passed_pawn_bonus = 30
+        doubled_pawn_penalty = 50
+        isolated_pawn_penalty = 50
+        passed_pawn_bonus = 50
         pawn_controlling_center_bonus = 50
         pawn_positions = {WHITE: [], BLACK: []}
 
@@ -142,8 +155,9 @@ class Evaluator:
     
     def king_position_evaluation(self, board: Board, number_of_pieces: int) -> int:
         king_safety_score = 0
-        king_safety_bonus = 50 * int(round((number_of_pieces - 2) / (32 - 2)))
-        king_safety_penalty = 50 * int(round((number_of_pieces - 2) / (32 - 2)))
+        king_backrank_bonus = self.rescale(number_of_pieces, 2, 32, 0, 50)
+        king_safety_penalty = self.rescale(number_of_pieces, 2, 32, 0, 50)
+        king_xray_penalty = 50
 
         king_positions = {WHITE: - 1, BLACK: - 1}
         for index, piece in enumerate(board.board_pieces):
@@ -165,14 +179,14 @@ class Evaluator:
             # Simple heuristic: kings on back rank and flank files are safer
             if (color == WHITE and rank == 7) or (color == BLACK and rank == 0):
                 if color == WHITE:
-                    king_safety_score += king_safety_bonus
+                    king_safety_score += king_backrank_bonus
                 else:
-                    king_safety_score -= king_safety_bonus
+                    king_safety_score -= king_backrank_bonus
             else:
                 if color == WHITE:
-                    king_safety_score -= king_safety_bonus
+                    king_safety_score -= king_backrank_bonus
                 else:
-                    king_safety_score += king_safety_bonus
+                    king_safety_score += king_backrank_bonus
             
             if file in [3, 4, 5]:  # Central files
                 if color == WHITE:
@@ -192,11 +206,53 @@ class Evaluator:
                         else:
                             king_safety_score += king_safety_penalty
 
+            # X-rays and pins to the king
+            enemy_color = BLACK if color == WHITE else WHITE
+            directions = [-9, -8, -7, -1, 1, 7, 8, 9]
+            for direction in directions:
+                current_index = king_index
+                found_own_piece = False
+                while True:
+                    current_index += direction
+                    if not (0 <= current_index < 64):
+                        break
+                    if abs((current_index % 8) - ((current_index - direction) % 8)) > 1:
+                        break  # Edge wrap check
+
+                    piece = board.board_pieces[current_index]
+                    if piece != 0:
+                        if (piece & COLOR_MASK) == color:
+                            if found_own_piece:
+                                break  # Second own piece blocks the line
+                            found_own_piece = True
+                        else:
+                            t = piece & TYPE_MASK
+                            if found_own_piece:
+                                # Check for pinning pieces
+                                if direction in [-9, -7, 7, 9] and t == 3:  # Bishop
+                                    if color == WHITE:
+                                        king_safety_score -= king_xray_penalty
+                                    else:
+                                        king_safety_score += king_xray_penalty
+                                elif direction in [-8, -1, 1, 8] and t == 4:  # Rook
+                                    if color == WHITE:
+                                        king_safety_score -= king_xray_penalty
+                                    else:
+                                        king_safety_score += king_xray_penalty
+                                elif t == 5:  # Queen
+                                    if color == WHITE:
+                                        king_safety_score -= king_xray_penalty
+                                    else:
+                                        king_safety_score += king_xray_penalty
+                            break  # Enemy piece encountered, stop searching
+
         return king_safety_score
 
     def pieces_combination_evaluation(self, board: Board) -> int:
         score = 0
-        bishop_pair_bonus = 40
+        number_of_pawns = len([p for p in board.board_pieces if p != 0 and (p & TYPE_MASK) == 1])
+        max_bishop_pair_bonus = 100
+        bishop_pair_bonus = self.rescale(number_of_pawns, 0, 16, max_bishop_pair_bonus, 10)
 
         white_bishops = [i for i, p in enumerate(board.board_pieces) if p != 0 and (p & TYPE_MASK) == 3 and (p & COLOR_MASK) == WHITE]
         black_bishops = [i for i, p in enumerate(board.board_pieces) if p != 0 and (p & TYPE_MASK) == 3 and (p & COLOR_MASK) == BLACK]
@@ -208,3 +264,16 @@ class Evaluator:
             score -= bishop_pair_bonus
 
         return score
+    
+    def rescale(self, x, n, m, alfa, beta):
+        """Rescale x from range [n, m] to range [alfa, beta]."""
+        return ((x - n) * (beta - alfa)) / (m - n) + alfa
+    
+
+if __name__ == "__main__":
+    eval = Evaluator()
+    print(eval.rescale(16, 0, 16, 100, 10))
+    print(eval.rescale(8, 0, 16, 100, 10))
+    print(eval.rescale(2, 0, 16, 100, 10))
+    print(eval.rescale(1, 0, 16, 100, 10))
+    print(eval.rescale(0, 0, 16, 100, 10))
