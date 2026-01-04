@@ -83,6 +83,8 @@ class Evaluator:
             files_with_pawns = set()
             for pos in pawn_positions[color]:
                 file = pos % 8
+                if file in [0, 7]:
+                    continue
                 files_with_pawns.add(file)
 
             for file in files_with_pawns:
@@ -140,7 +142,7 @@ class Evaluator:
     
     def king_position_evaluation(self, board: Board, number_of_pieces: int) -> int:
         king_safety_score = 0
-        king_safety_bonus = 30 * int(round((number_of_pieces - 2) / (32 - 2)))
+        king_safety_bonus = 50 * int(round((number_of_pieces - 2) / (32 - 2)))
         king_safety_penalty = 50 * int(round((number_of_pieces - 2) / (32 - 2)))
 
         king_positions = {WHITE: - 1, BLACK: - 1}
@@ -160,7 +162,7 @@ class Evaluator:
             rank = king_index // 8
             file = king_index % 8
 
-            # Simple heuristic: kings on back rank are safer
+            # Simple heuristic: kings on back rank and flank files are safer
             if (color == WHITE and rank == 7) or (color == BLACK and rank == 0):
                 if color == WHITE:
                     king_safety_score += king_safety_bonus
@@ -171,6 +173,12 @@ class Evaluator:
                     king_safety_score -= king_safety_bonus
                 else:
                     king_safety_score += king_safety_bonus
+            
+            if file in [3, 4, 5]:  # Central files
+                if color == WHITE:
+                    king_safety_score -= king_safety_penalty
+                else:
+                    king_safety_score += king_safety_penalty
 
             # King safety
             directions = [-9, -8, -7, -1, 1, 7, 8, 9]
